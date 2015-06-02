@@ -1,0 +1,115 @@
+Team Two
+- Frank Chang
+- Alexander Galushka
+- Jeff Gentry
+- Orr Inbar
+
+We went with the stock ticker assignment. This document will describe the API and the architecture 
+we chose to go with.
+
+API
+---
+
+The system will come up on localhost port 8000. The API is as follows:
+
+price/SYMBOL/current: retrieves the current price of SYMBOL
+price/SYMBOL/DAYSBACK: retrieves the price of SYMBOL as of DAYSBACK
+trend/SYMBOL/DAYS: retrieves the trend of SYMBOL over the last DAYS days
+movingaverage/SYMBOL/DAYS/SLIDINGWINDOW: Get movingaverage of SYMBOL over DAYS days with SLIDINGWINDOW-sliding window
+insert/SYMBOL/PRICE: insert a ticker for SYMBOL with price PRICE. date will be the moment it is processed
+bollinger/SYMBOL/midpoint: retrieve the midpoint bollinger band for SYMBOL
+bollinger/SYMBOL/upperband: retrieve the upper bollinger band for SYMBOL
+bollinger/SYMBOL/lowerband: retrieve the lower bollinger band for SYMBOL
+
+Architecture
+------------
+
+The basic stack is scala, akka, spray and mysql. 
+
+We chose to use spray because there was a bit of experience within the group working with it in the past.
+The system is set up using the per-request per-endpoint actor pattern. There is a single actor handling
+incoming web requests and passing through the spray routing. Every API end point has a corresponding
+actor class. When the routing actor receives a HttpRequest it determines the appropriate endpoint and
+spins up the corresponding actor. That actor is passed any arguments as well as the RequestContext and 
+at this point the routing actor is completely done from it's perspective. The endpoint actor handles its 
+underlying business logic and once complete it will send a HttpResponse to the original sender. This structure
+allows for a high degree of concurrency for the web service because the routing actor is able to process
+connections extremely quickly and free itself up to be available for the next one. Similarly since each 
+request is handled by its own self-contained actor requests can be processed completely independently.
+
+We chose to use MySQL due to the combination of one member preferring that over NoSQL solutions and another
+member already having a MySQL server so creation of a new database was extremely simple. Furthermore this
+simplifies setup for the grader(s) as teh login credentials are stored via a Typesafe Config file and will
+be seemless to run. We felt that MySQL was sufficient for a high degree of load as multiple group members 
+had seen it used in production systems with a good amount of volume. We had a single table with a simple
+structure consisting of stock symbol/date/price for each ticker.
+
+Direct access to the database occurs via a DAO object with a simple structure. It initializes the database
+with a connection pool (using c3p0) to allow for more efficient access. All access to this DAO is handled
+via a data access actor. This actor receives incoming requests and returns a Future wrapping the appropriate
+DAO function. The data access actor has its own execution context, which is a fixed thread pool. We felt that
+this choice was more appropriate for database access and by using a separate context any longer running
+DB queries would not affect anything else in the overall system. This structure allows for database access to
+happen in a highly concurrent manner.
+
+Running
+-------
+
+1. Run the server:
+
+    - from IntelliJ:
+
+      right  click on StockTickerService -> Run
+
+    - from cmd line:
+
+      project root folder: sbt run
+
+   At this point HTTP requests can be sent to the server and responses can be observed.
+
+2. <Optional>: Populate DB with data:
+    
+    *WARNING*: 
+
+    DB is already populated with the latest data, but if you wish to run it 
+    just make sure you log into the database first and clear the quote table, to prevent duplicate data from
+    being inserted:
+    
+        a. goto: http://hexdump.org/dh_phpmyadmin/mysql.hexdump.org/index.php?db=team_two_dev
+             username: teamtwo
+             password: cscie54teamtwo
+        b. go to the SQL tab, and enter the command "truncate table quote"
+
+    - Change to the directory C:/Users/Daniel Billings/team-two/src/test/scala
+      At the SBT prompt, type "run-main DataInserter" while the server is running in another window
+      to initiate a download of the most recent end-of-day stock data files, which
+      will then concurrently parse them and send PUT requests to the API with stock data (30 sec processing time, 
+      please be patient)
+
+    - to reload the data - clear the table first (with SQL command: "TRUNCATE TABLE QUOTE", from phpmyadmin)
+      WARNING: if you dont clear the table it will insert duplicate values
+
+3. <Optional>: Tests
+   
+   run test/scala/Tests
+
+4. <Optional>: Functional Testing with POSTMAN:
+   
+   - Install the Chrome extension, app "POSTMAN":
+
+     https://chrome.google.com/webstore/category/apps?utm_source=chrome-ntp-icon
+
+   - configure "Headers":
+     
+     type in "Content-Type" in the "Header"
+   
+   - in URL type endpoint under test, eg. "localhost:8000/price/GOOG/current"), choose the right REST request in this 
+     case it's GET (see dropdown menu for choices)
+
+   - click SEND, acknowledge result
+     
+
+Slides Deck
+-----------
+
+https://docs.google.com/presentation/d/138B6HMrXn5l_u3YGgV8avER-sG9JMwU_zkmHqIjh2b0/edit#slide=id.p
